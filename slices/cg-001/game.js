@@ -41,7 +41,22 @@
     check:    { impulse: 330, minSpeed: 120, radius: SKATER_R * 2 + 3 }, // knock; min closing speed; reach
     puck:     { damping: 0.85 },                       // per-second glide damping (concrete)
     fence:    { restitution: 1.0 },                    // puck bounce energy off the boards (1 = elastic)
-    pickup:   { radius: SKATER_R + PUCK_R + 5 }         // loose-puck grab range
+    pickup:   { radius: SKATER_R + PUCK_R + 5 },        // loose-puck grab range
+    // CG-003 asphalt brawl (rhythm confrontation, not a fighting engine)
+    brawl: {
+      tensionPerCheck: 25,   // tension added by each qualifying (landed) check
+      tensionMax: 100,       // threshold that triggers the brawl (=> 4 checks)
+      warnAt: 0.7,           // fraction of max where the meter warns
+      freezeTime: 0.5,       // the "court goes silent" beat before the count
+      beats: 4,              // rhythm strikes in a scrap
+      beatPeriod: 1.0,       // seconds per beat (=> ~4s + freeze ≈ 5s total)
+      windowOpen: 0.35,      // hit window starts this far into a beat
+      windowLen: 0.35,       // hit window length (seconds)
+      winHits: 3,            // hits (of `beats`) the player needs to win
+      winnerBoostTime: 2.0,  // winner's momentum benefit (seconds)
+      winnerBoostMult: 1.35, // winner's speed multiplier during the boost
+      loserPenaltyTime: 2.0  // loser's stagger on resume (seconds)
+    }
   };
 
   // Non-feel geometry / timing (fixed; deliberately outside the tuning surface).
@@ -82,6 +97,17 @@
   var simAiOnly = false;   // deterministic scenarios drive every skater by AI
   var diagOn = false;      // toggleable diagnostics overlay
   var fps = 0;
+  var simTicks = 0;        // fixed-step counter (event timestamps; deterministic)
+
+  // ---- CG-003 asphalt brawl state ------------------------------------
+  var PHASE_PLAY = 'PLAY', PHASE_FREEZE = 'FREEZE', PHASE_BRAWL = 'BRAWL';
+  var phase = PHASE_PLAY;
+  var brawlEnabled = true;         // scenarios can disable it to reproduce CG-002
+  var tension = 0;                 // 0..TUNING.brawl.tensionMax, only from checks
+  var freezeTimer = 0;             // the "court goes silent" beat
+  var shakeTimer = 0;              // fence-rattle screen shake
+  var brawl = null;                // active brawl descriptor
+  var brawlInputPolicy = null;     // scenarios: 'perfect' | 'fail' | null (live)
 
   // Seeded PRNG (mulberry32) so scenarios are reproducible. All gameplay
   // randomness routes through rng(); live play seeds from the clock, scenarios
@@ -106,11 +132,25 @@
       possessionChanges: 0,
       checks: 0,
       goals: { player: 0, opponent: 0 },
+      // CG-003 brawl metrics
+      tension_gained: 0,
+      brawl_triggered: 0,
+      brawl_input: 0,
+      brawl_hit: 0,
+      brawl_miss: 0,
+      brawl_resolved: 0,
+      play_resumed: 0,
+      brawlEvents: [],
       elapsed: 0
     };
     lastPossessionTeam = -1;
   }
   resetMetrics();
+
+  function logBrawlEvent(ev) {
+    ev.tick = simTicks;
+    metrics.brawlEvents.push(ev);
+  }
 
   function recordShot(speed) {
     metrics.shots++;
@@ -141,7 +181,7 @@
   function makeSkater(team, x, y, role) {
     return { id: 0, team: team, x: x, y: y, vx: 0, vy: 0,
              fx: team === TEAM_PLAYER ? 1 : -1, fy: 0, // facing
-             role: role, stagger: 0, onOil: false };
+             role: role, stagger: 0, boost: 0, onOil: false };
   }
 
   function ownerTeam() { return puck.owner >= 0 ? skaters[puck.owner].team : -1; }
@@ -186,8 +226,11 @@
 
   function startGame() {
     simAiOnly = false;
+    brawlEnabled = true; brawlInputPolicy = null;
     seedRng((Date.now() >>> 0) ^ 0x9e3779b9); // live play: varied each period
     resetMetrics();
+    simTicks = 0;
+    phase = PHASE_PLAY; tension = 0; freezeTimer = 0; shakeTimer = 0; brawl = null;
     score.player = 0; score.opponent = 0;
     timeRemaining = PERIOD_SECONDS;
     resetPositions(true);
@@ -252,6 +295,9 @@
 
   function onPointerDown(e) {
     e.preventDefault();
+    // During the scrap a tap is a rhythm strike, not a skate; during the freeze
+    // beat nothing responds (the court has gone silent).
+    if (phase !== PHASE_PLAY) { if (phase === PHASE_BRAWL) brawlInput(); return; }
     var p = canvasPoint(e.clientX, e.clientY);
     pointer.down = true;
     pointer.x = pointer.startX = pointer.lastX = p.x;
@@ -274,7 +320,7 @@
   function onPointerUp(e) {
     if (!pointer.down) return;
     pointer.down = false;
-    if (!running) return;
+    if (!running || phase !== PHASE_PLAY) return;
 
     var id = activeHumanId();
     if (id < 0) return;
@@ -300,16 +346,21 @@
     return function (e) {
       var k = e.key.toLowerCase();
       keys[k] = down;
-      if (down && running) {
+      if (down && (k === 'r')) startGame();
+      if (down && (k === '`')) diagOn = !diagOn;   // toggle diagnostics overlay
+      if (k === ' ') e.preventDefault();
+      // A rhythm strike during the scrap (space/j/k), never a hockey action.
+      if (down && phase === PHASE_BRAWL) {
+        if (k === ' ' || k === 'j' || k === 'k') brawlInput();
+        return;
+      }
+      if (down && running && phase === PHASE_PLAY) {
         var id = activeHumanId();
         if (id >= 0 && puck.owner === id) {
           if (k === 'j') passToTeammate(id);
           if (k === 'k' || k === ' ') shootTowardNet(id);
         }
       }
-      if (down && (k === 'r')) startGame();
-      if (down && (k === '`')) diagOn = !diagOn;   // toggle diagnostics overlay
-      if (k === ' ') e.preventDefault();
     };
   }
 
@@ -382,7 +433,8 @@
 
   // ---- Physics / simulation -----------------------------------------
   function integrateSkater(s, a, dt) {
-    var speedScale = s.stagger > 0 ? 0.35 : 1;
+    // Brawl aftermath: winner keeps a brief speed boost, loser is staggered slow.
+    var speedScale = s.boost > 0 ? TUNING.brawl.winnerBoostMult : (s.stagger > 0 ? 0.35 : 1);
 
     // Oil slick: lose grip while inside it. Less steering authority and less
     // braking, so you keep sliding the way you were already going. Restores
@@ -416,6 +468,7 @@
     }
 
     if (s.stagger > 0) s.stagger = Math.max(0, s.stagger - dt);
+    if (s.boost > 0) s.boost = Math.max(0, s.boost - dt);
   }
 
   function separateSkaters() {
@@ -453,6 +506,12 @@
       metrics.checks++;
       if (carrier.team === TEAM_PLAYER) flash('CHECKED!', 0.5);
       else flash('BIG HIT', 0.5);
+      // Qualifying check builds tension; at the threshold, the asphalt boils over.
+      if (brawlEnabled) {
+        tension = Math.min(TUNING.brawl.tensionMax, tension + TUNING.brawl.tensionPerCheck);
+        metrics.tension_gained += TUNING.brawl.tensionPerCheck;
+        if (tension >= TUNING.brawl.tensionMax) triggerBrawl(s.id, carrier.id);
+      }
       return;
     }
   }
@@ -519,6 +578,108 @@
 
   function flash(text, secs) { flashText = text; flashTimer = secs; }
 
+  // ---- CG-003 asphalt brawl ------------------------------------------
+  // A check crossed the tension threshold. Freeze the court for a half-second
+  // "silence" beat, then run a short rhythm confrontation between exactly the
+  // two skaters involved (always one per team — checks only land across teams).
+  function triggerBrawl(aggressorId, defenderId) {
+    var agg = skaters[aggressorId], def = skaters[defenderId];
+    var playerId = agg.team === TEAM_PLAYER ? aggressorId : defenderId;
+    var oppId = agg.team === TEAM_PLAYER ? defenderId : aggressorId;
+    brawl = {
+      playerId: playerId, oppId: oppId, aggressorId: aggressorId,
+      t: 0, beat: 0, resolved: [], hits: 0, misses: 0, done: false, outcome: null,
+      resumeTimeRemaining: timeRemaining
+    };
+    for (var i = 0; i < TUNING.brawl.beats; i++) brawl.resolved.push(null);
+    phase = PHASE_FREEZE;
+    freezeTimer = TUNING.brawl.freezeTime;
+    shakeTimer = TUNING.brawl.freezeTime;   // fence rattles during the silence
+    metrics.brawl_triggered++;
+    logBrawlEvent({ type: 'trigger', aggressor: aggressorId, defender: defenderId,
+                    playerId: playerId, oppId: oppId, tension: tension,
+                    checks: metrics.checks, timeRemaining: round3(timeRemaining) });
+    flash('', 0);
+  }
+
+  function beginRhythm() { phase = PHASE_BRAWL; }
+
+  // A rhythm input (human tap/key, or a scenario's scripted policy). Each beat
+  // resolves exactly once: a press inside the open window is a hit, a press
+  // anywhere else in the beat is an immediate miss (so mashing loses), and a
+  // beat that runs out unpressed times out as a miss.
+  function brawlInput() {
+    if (phase !== PHASE_BRAWL || !brawl || brawl.done) return;
+    metrics.brawl_input++;
+    var b = TUNING.brawl;
+    var i = Math.floor(brawl.t / b.beatPeriod);
+    if (i < 0 || i >= b.beats || brawl.resolved[i] !== null) return; // wasted press
+    var localT = brawl.t - i * b.beatPeriod;
+    if (localT >= b.windowOpen && localT <= b.windowOpen + b.windowLen) {
+      brawl.resolved[i] = 'hit'; brawl.hits++; metrics.brawl_hit++;
+      logBrawlEvent({ type: 'hit', beat: i });
+    } else {
+      brawl.resolved[i] = 'miss'; brawl.misses++; metrics.brawl_miss++;
+      logBrawlEvent({ type: 'miss', beat: i, reason: 'mistimed' });
+    }
+  }
+
+  function updateBrawl(dt) {
+    var b = TUNING.brawl;
+    brawl.t += dt;
+
+    // Scenario policy: perfect presses one hit at each window centre; fail never presses.
+    if (brawlInputPolicy === 'perfect') {
+      var i = Math.floor(brawl.t / b.beatPeriod);
+      if (i >= 0 && i < b.beats && brawl.resolved[i] === null) {
+        var localT = brawl.t - i * b.beatPeriod;
+        if (localT >= b.windowOpen + b.windowLen / 2) brawlInput();
+      }
+    }
+
+    // Time out any beat whose window has fully passed without resolution.
+    var passedBeats = Math.floor(brawl.t / b.beatPeriod);
+    for (var k = 0; k < Math.min(passedBeats, b.beats); k++) {
+      if (brawl.resolved[k] === null) {
+        brawl.resolved[k] = 'miss'; brawl.misses++; metrics.brawl_miss++;
+        logBrawlEvent({ type: 'miss', beat: k, reason: 'timeout' });
+      }
+    }
+
+    if (brawl.t >= b.beats * b.beatPeriod) finalizeBrawl();
+  }
+
+  function finalizeBrawl() {
+    var b = TUNING.brawl;
+    var playerWon = brawl.hits >= b.winHits;
+    brawl.outcome = playerWon ? 'PLAYER' : 'RIVAL';
+    brawl.done = true;
+    metrics.brawl_resolved++;
+    logBrawlEvent({ type: 'resolve', winner: brawl.outcome, hits: brawl.hits, misses: brawl.misses });
+
+    var winnerId = playerWon ? brawl.playerId : brawl.oppId;
+    var loserId = playerWon ? brawl.oppId : brawl.playerId;
+
+    // Reset tension and resume from a deterministic face-off; the timer was
+    // frozen throughout, so it comes back exactly where it paused.
+    tension = 0;
+    resetPositions(true);
+    skaters[winnerId].boost = b.winnerBoostTime;   // brief momentum benefit
+    skaters[loserId].stagger = b.loserPenaltyTime; // short disadvantage
+    phase = PHASE_PLAY;
+    shakeTimer = 0;
+    metrics.play_resumed++;
+    // timeRemaining was frozen through freeze+brawl, so this equals the value
+    // logged at trigger — that equality is the "match state resumes correctly" proof.
+    logBrawlEvent({ type: 'resume', winner: brawl.outcome,
+                    timeRemaining: round3(timeRemaining),
+                    puckOwner: puck.owner, faceoff: true });
+    flash(playerWon ? 'YOU WIN THE SCRAP' : 'RIVALS WIN THE SCRAP', 1.0);
+    brawl = null;
+  }
+
+  function round3(v) { return Math.round(v * 1000) / 1000; }
+
   // ---- Main loop -----------------------------------------------------
   var last = 0, acc = 0, STEP = 1 / 60;
 
@@ -530,14 +691,35 @@
 
     if (running) {
       acc += dt;
-      while (acc >= STEP) { step(STEP); metrics.elapsed += STEP; acc -= STEP; }
-      timeRemaining -= dt;
-      if (timeRemaining <= 0) { timeRemaining = 0; endGame(); }
+      while (acc >= STEP) { simTick(STEP); acc -= STEP; if (!running) break; }
     }
     if (flashTimer > 0) flashTimer -= dt;
+    if (shakeTimer > 0) shakeTimer = Math.max(0, shakeTimer - dt);
 
     render();
     requestAnimationFrame(frame);
+  }
+
+  // One fixed simulation step. Dispatches by phase so hockey, the freeze beat,
+  // and the brawl all advance on the same deterministic clock. The match timer
+  // and play metrics advance ONLY during PLAY — everything is frozen otherwise.
+  function simTick(dt) {
+    simTicks++;
+    if (phase === PHASE_PLAY) {
+      step(dt);
+      // If a check triggered a brawl mid-step we've already left PLAY; don't
+      // advance the clock this tick, so the timer freezes exactly at trigger.
+      if (phase === PHASE_PLAY) {
+        metrics.elapsed += dt;
+        timeRemaining -= dt;
+        if (timeRemaining <= 0) { timeRemaining = 0; endGame(); }
+      }
+    } else if (phase === PHASE_FREEZE) {
+      freezeTimer -= dt;
+      if (freezeTimer <= 0) beginRhythm();
+    } else if (phase === PHASE_BRAWL) {
+      updateBrawl(dt);
+    }
   }
 
   function step(dt) {
@@ -558,6 +740,13 @@
   // ---- Render --------------------------------------------------------
   function render() {
     ctx.clearRect(0, 0, W, H);
+
+    // Fence-rattle shake during the freeze beat.
+    ctx.save();
+    if (shakeTimer > 0) {
+      var m = shakeTimer * 6;
+      ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+    }
 
     // Asphalt + subtle grid.
     ctx.fillStyle = COLOR.asphalt;
@@ -599,9 +788,104 @@
     ctx.arc(puck.x, puck.y, PUCK_R, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
 
+    ctx.restore(); // end shake transform
+
     drawHud();
+    drawTensionMeter();
+    if (phase === PHASE_FREEZE) drawFreeze();
+    if (phase === PHASE_BRAWL) drawBrawlOverlay();
     if (flashTimer > 0 && flashText) drawFlash();
     if (diagOn) drawDiag();
+  }
+
+  // Tension meter — bottom-centre, fills with each qualifying check, warns near
+  // the threshold. This is the "why did the brawl happen" readout.
+  function drawTensionMeter() {
+    var b = TUNING.brawl, frac = tension / b.tensionMax;
+    var w = 280, h = 12, x = W / 2 - w / 2, y = RINK.bottom - 26;
+    var warn = frac >= b.warnAt;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x, y, w, h);
+    // Fill: cyan → warning red as it approaches threshold, pulsing when warned.
+    var pulse = warn ? 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 120)) : 1;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = warn ? COLOR.opp : COLOR.player;
+    ctx.fillRect(x, y, w * frac, h);
+    ctx.globalAlpha = 1;
+    // Threshold marker.
+    ctx.strokeStyle = COLOR.puck; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x + w, y - 3); ctx.lineTo(x + w, y + h + 3); ctx.stroke();
+    ctx.fillStyle = warn ? COLOR.opp : 'rgba(255,255,255,0.6)';
+    ctx.font = '700 11px "Courier New", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(warn ? 'TENSION — GLOVES ABOUT TO DROP' : 'TENSION', W / 2, y - 4);
+  }
+
+  // The half-second "court goes silent" beat before the count.
+  function drawFreeze() {
+    ctx.fillStyle = 'rgba(6,8,12,' + (0.35 + 0.4 * (1 - freezeTimer / TUNING.brawl.freezeTime)) + ')';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = COLOR.opp;
+    ctx.font = '900 40px "Courier New", monospace';
+    ctx.shadowColor = COLOR.opp; ctx.shadowBlur = 24;
+    ctx.fillText('GLOVES OFF', W / 2, H / 2);
+    ctx.shadowBlur = 0;
+  }
+
+  // The rhythm confrontation: a track with a moving playhead and per-beat hit
+  // windows. Tap when the playhead is in the green.
+  function drawBrawlOverlay() {
+    var b = TUNING.brawl;
+    ctx.fillStyle = 'rgba(6,8,12,0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Combatants: player (cyan) vs rival (pink).
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '900 22px "Courier New", monospace';
+    ctx.fillStyle = COLOR.player; ctx.fillText('YOU', W * 0.28, H * 0.30);
+    ctx.fillStyle = '#e5e7eb'; ctx.font = '700 18px "Courier New", monospace';
+    ctx.fillText('vs', W * 0.5, H * 0.30);
+    ctx.fillStyle = COLOR.opp; ctx.font = '900 22px "Courier New", monospace';
+    ctx.fillText('RIVAL', W * 0.72, H * 0.30);
+
+    // Timing track.
+    var total = b.beats * b.beatPeriod;
+    var tx = W * 0.18, tw = W * 0.64, ty = H * 0.52, th = 34;
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(tx, ty, tw, th);
+    // Per-beat hit windows.
+    for (var i = 0; i < b.beats; i++) {
+      var wx = tx + ((i * b.beatPeriod + b.windowOpen) / total) * tw;
+      var ww = (b.windowLen / total) * tw;
+      var st = brawl ? brawl.resolved[i] : null;
+      ctx.fillStyle = st === 'hit' ? 'rgba(57,255,20,0.85)'
+                    : st === 'miss' ? 'rgba(244,63,94,0.6)'
+                    : 'rgba(234,179,8,0.5)';
+      ctx.fillRect(wx, ty, ww, th);
+    }
+    // Beat dividers.
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+    for (var j = 1; j < b.beats; j++) {
+      var dx = tx + (j * b.beatPeriod / total) * tw;
+      line(dx, ty, dx, ty + th);
+    }
+    // Playhead.
+    if (brawl) {
+      var px = tx + clamp(brawl.t / total, 0, 1) * tw;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+      line(px, ty - 8, px, ty + th + 8);
+    }
+
+    // Hit counter + prompt.
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#e5e7eb'; ctx.font = '700 16px "Courier New", monospace';
+    var hits = brawl ? brawl.hits : 0;
+    ctx.fillText('HITS ' + hits + ' / ' + b.beats + '   (need ' + b.winHits + ')', W / 2, ty + th + 20);
+    ctx.fillStyle = COLOR.puck; ctx.font = '700 13px "Courier New", monospace';
+    ctx.fillText('TAP / SPACE when the line hits the gold', W / 2, ty + th + 44);
   }
 
   // Toggleable diagnostics overlay (` key, or window.CG.toggleDiag()).
@@ -619,6 +903,9 @@
       'fence hits ' + metrics.fenceImpacts + '  last angle ' + metrics.lastFenceAngleDeg + '°',
       'possession changes ' + metrics.possessionChanges,
       'goals  you ' + metrics.goals.player + '  rivals ' + metrics.goals.opponent,
+      'brawls trig/res ' + metrics.brawl_triggered + '/' + metrics.brawl_resolved +
+        '  hit/miss ' + metrics.brawl_hit + '/' + metrics.brawl_miss,
+      'tension ' + tension + '/' + TUNING.brawl.tensionMax + '  phase ' + phase,
       'puck speed ' + puckSp.toFixed(0) + ' px/s',
       '',
       'accel ' + TUNING.movement.accel + '  vmax ' + TUNING.movement.maxSpeed,
@@ -638,7 +925,7 @@
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.font = '600 11px "Courier New", monospace';
-    var firstConstLine = 10; // metrics above, TUNING constants below
+    var firstConstLine = 12; // metrics above, TUNING constants below
     for (var i = 0; i < lines.length; i++) {
       ctx.fillStyle = i === 0 ? '#39ff14' : (i >= firstConstLine ? '#9ca3af' : '#cbd5e1');
       ctx.fillText(lines[i], x + pad, y + pad + i * lh);
@@ -679,6 +966,11 @@
 
   function drawSkater(s, isHuman) {
     var color = s.team === TEAM_PLAYER ? COLOR.player : COLOR.opp;
+    // Brawl winner's momentum boost: a bright green halo for its short duration.
+    if (s.boost > 0) {
+      ctx.beginPath(); ctx.strokeStyle = COLOR.fence; ctx.lineWidth = 2.5;
+      ctx.arc(s.x, s.y, SKATER_R + 8, 0, Math.PI * 2); ctx.stroke();
+    }
     // On the slick: dashed yellow ring, so the loss of grip is legible.
     if (s.onOil) {
       ctx.beginPath(); ctx.strokeStyle = COLOR.puck; ctx.lineWidth = 2;
@@ -746,12 +1038,21 @@
   // Same seed + fixed timestep + scripted setup => identical metrics every
   // run. These are the measuring instruments: repeatable, explainable results.
   var SCENARIOS = {
+    // CG-002 hockey scenarios — brawls OFF (omit `brawl`) so they reproduce the
+    // committed feel-calibration baseline exactly.
     'ai-faceoff-60s': { seed: 0x00C0FFEE, seconds: 60, aiOnly: true,
                         note: 'canonical 60-second evidence run, full AI vs AI' },
     'ai-faceoff-10s': { seed: 0x0000B00B, seconds: 10, aiOnly: true,
                         note: 'short repeatability check' },
     'ai-faceoff-30s-altseed': { seed: 0xBADA55, seconds: 30, aiOnly: true,
-                        note: 'different seed, confirms seed sensitivity' }
+                        note: 'different seed, confirms seed sensitivity' },
+    // CG-003 brawl scenarios — brawls ON, with a scripted rhythm policy.
+    'brawl-perfect-30s': { seed: 0x0A5FA17, seconds: 30, aiOnly: true, brawl: true,
+                        brawlInput: 'perfect', note: 'perfect input => player always wins' },
+    'brawl-fail-30s': { seed: 0x0A5FA17, seconds: 30, aiOnly: true, brawl: true,
+                        brawlInput: 'fail', note: 'no input => rivals always win, loser penalized' },
+    'brawl-canonical-60s': { seed: 0xA59A17, seconds: 60, aiOnly: true, brawl: true,
+                        brawlInput: 'perfect', note: 'canonical 60s brawl evidence run' }
   };
 
   function snapshotMetrics(name, sc) {
@@ -760,6 +1061,8 @@
       scenario: name,
       seed: sc ? sc.seed : currentSeed,
       seconds: sc ? sc.seconds : metrics.elapsed,
+      brawlEnabled: sc ? (sc.brawl === true) : brawlEnabled,
+      brawlInput: sc ? (sc.brawlInput || null) : brawlInputPolicy,
       tuning: JSON.parse(JSON.stringify(TUNING)),
       metrics: {
         shots: metrics.shots,
@@ -770,8 +1073,32 @@
         possessionChanges: metrics.possessionChanges,
         checks: metrics.checks,
         goals: { player: metrics.goals.player, opponent: metrics.goals.opponent },
+        // CG-003 brawl metrics
+        tension_gained: metrics.tension_gained,
+        brawl_triggered: metrics.brawl_triggered,
+        brawl_input: metrics.brawl_input,
+        brawl_hit: metrics.brawl_hit,
+        brawl_miss: metrics.brawl_miss,
+        brawl_resolved: metrics.brawl_resolved,
+        play_resumed: metrics.play_resumed,
         elapsed: Math.round(metrics.elapsed * 1000) / 1000
-      }
+      },
+      brawlEvents: metrics.brawlEvents.slice()
+    };
+  }
+
+  // A compact live-state snapshot for resume-correctness checks.
+  function snapshotState() {
+    return {
+      phase: phase, tension: tension,
+      timeRemaining: round3(timeRemaining),
+      puck: { x: round3(puck.x), y: round3(puck.y), owner: puck.owner },
+      skaters: skaters.map(function (s) {
+        return { team: s.team, x: round3(s.x), y: round3(s.y),
+                 stagger: round3(s.stagger), boost: round3(s.boost),
+                 finite: isFinite(s.x) && isFinite(s.y) && isFinite(s.vx) && isFinite(s.vy),
+                 inRink: s.x >= RINK.left && s.x <= RINK.right && s.y >= RINK.top && s.y <= RINK.bottom };
+      })
     };
   }
 
@@ -783,15 +1110,35 @@
     if (!sc) throw new Error('unknown scenario: ' + name);
     running = false;
     simAiOnly = !!sc.aiOnly;
+    brawlEnabled = (sc.brawl === true);       // CG-002 scenarios omit this => reproduce baseline
+    brawlInputPolicy = sc.brawlInput || null; // 'perfect' | 'fail' | null
     seedRng(sc.seed);
     resetMetrics();
-    score.player = 0; score.opponent = 0;   // keep the visible HUD in sync with this run
-    timeRemaining = 0;                       // a completed scenario reads 0:00
+    simTicks = 0;
+    phase = PHASE_PLAY; tension = 0; freezeTimer = 0; shakeTimer = 0; brawl = null;
+    score.player = 0; score.opponent = 0;     // keep the visible HUD in sync with this run
+    timeRemaining = sc.seconds + 30;          // headroom so the clock never ends mid-scenario
     resetPositions(true);
     flashText = null; flashTimer = 0;
     var dt = STEP, frames = Math.round(sc.seconds / dt);
-    for (var i = 0; i < frames; i++) { step(dt); metrics.elapsed += dt; }
+    for (var i = 0; i < frames; i++) simTick(dt);
     return snapshotMetrics(name, sc);
+  }
+
+  // Debug helper: deterministically advance into a paused mid-brawl state so the
+  // overlay can be inspected or screenshotted. Leaves the sim paused in PHASE_BRAWL.
+  function debugEnterBrawl(seed, atT) {
+    running = false; simAiOnly = true; brawlEnabled = true; brawlInputPolicy = 'perfect';
+    seedRng((seed || 0xB4A1) >>> 0); resetMetrics(); simTicks = 0;
+    phase = PHASE_PLAY; tension = 0; freezeTimer = 0; shakeTimer = 0; brawl = null;
+    score.player = 0; score.opponent = 0; timeRemaining = 90;
+    resetPositions(true); flashText = null; flashTimer = 0;
+    var guard = 0, stopAt = atT || 1.45;
+    while (guard++ < 200000) {
+      simTick(STEP);
+      if (phase === PHASE_BRAWL && brawl && brawl.t >= stopAt) break;
+    }
+    return { phase: phase, brawlT: brawl ? round3(brawl.t) : null };
   }
 
   // Headless / console API for measurement and tuning.
@@ -803,6 +1150,8 @@
       scenarios: Object.keys(SCENARIOS),
       runScenario: runScenario,
       getMetrics: function () { if (!metrics) resetMetrics(); return snapshotMetrics('live', null); },
+      getState: snapshotState,
+      debugEnterBrawl: debugEnterBrawl,
       toggleDiag: function () { diagOn = !diagOn; return diagOn; },
       setDiag: function (v) { diagOn = !!v; return diagOn; }
     };

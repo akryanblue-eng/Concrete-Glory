@@ -1,0 +1,81 @@
+{
+  "generatedBy": "cg-003 headless brawl harness (Chromium, file://)",
+  "checks": [
+    {
+      "name": "P1 brawl triggered",
+      "ok": true
+    },
+    {
+      "name": "P1 trigger tension == max",
+      "ok": true,
+      "extra": 100
+    },
+    {
+      "name": "P1 threshold = ceil(max/perCheck) checks",
+      "ok": true,
+      "extra": "checks=4 expected=4"
+    },
+    {
+      "name": "P2 perfect all player wins",
+      "ok": true,
+      "extra": "[\"PLAYER\",\"PLAYER\",\"PLAYER\"]"
+    },
+    {
+      "name": "P2 perfect hits == beats each brawl",
+      "ok": true
+    },
+    {
+      "name": "P3 fail all rival wins",
+      "ok": true,
+      "extra": "[\"RIVAL\",\"RIVAL\",\"RIVAL\"]"
+    },
+    {
+      "name": "P3 fail zero hits",
+      "ok": true
+    },
+    {
+      "name": "P4 timer frozen + puck reset on resume",
+      "ok": true
+    },
+    {
+      "name": "P4 skater state sane after resume",
+      "ok": true,
+      "extra": "[true,true,true,true,true,true]"
+    },
+    {
+      "name": "P4 phase back to PLAY",
+      "ok": true,
+      "extra": "PLAY"
+    },
+    {
+      "name": "P5 identical event logs same page",
+      "ok": true
+    },
+    {
+      "name": "P5 identical event logs cross-load",
+      "ok": true
+    },
+    {
+      "name": "REG core hockey unchanged vs CG-002 baseline",
+      "ok": true,
+      "extra": "now=[1,14,58,15,15,11,60] base=[1,14,58,15,15,11,60]"
+    },
+    {
+      "name": "SHOT entered brawl overlay",
+      "ok": true,
+      "extra": "{\"phase\":\"BRAWL\",\"brawlT\":1.517}"
+    }
+  ],
+  "perfect": {
+    "triggers": 3,
+    "resolved": 3,
+    "hits": 12,
+    "misses": 0
+  },
+  "fail": {
+    "triggers": 3,
+    "resolved": 3,
+    "hits": 0,
+    "misses": 12
+  }
+}
