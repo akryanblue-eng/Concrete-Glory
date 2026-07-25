@@ -27,6 +27,10 @@ Double-click it, or drag it into any modern browser. It starts immediately.
   - **Shoot** — flick to fire at the net; flick speed sets the power.
   - **Check** — skate hard into the puck-carrier to knock it loose.
   - **Rebound** — chase the loose puck; it banks off the fence, nearest skater grabs it.
+- **One readable hazard** — a fixed oil slick, drawn on the surface with a dashed
+  warning ring. Skate onto it and you lose grip: less steering authority and less
+  braking, so momentum carries you. Grip restores fully the instant you leave.
+  It's the same for every skater, never moves, and carries no hidden penalty.
 - **Basic opponent** — the rival crew chases, carries, passes, and shoots.
 
 You always control whichever of your skaters has the puck; when you don't have
@@ -45,9 +49,10 @@ it, you control your crew member closest to the puck.
 ## Explicitly NOT in this slice
 
 Per the milestone boundary: no main menu, no cosmetics or gear, no career/meta
-progression, no Heat/rivalry system, no asphalt brawl, no concrete hazards, no
-multiple arenas, no full three-period match, and no online play. Those layer on
-top once the loop feels right.
+progression, no Heat/rivalry system, no asphalt brawl, no multiple arenas, no
+full three-period match, and no online play. Those layer on top once the loop
+feels right. (One readable hazard — the oil slick — is in scope; a wider hazard
+set is not.)
 
 ## Notes for the next step
 
