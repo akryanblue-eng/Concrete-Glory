@@ -59,4 +59,20 @@ set is not.)
 This slice is framework-free on purpose. `game.js` is organized as the engine's
 **systems** layer — input, AI, physics, and render are separated so the whole
 thing can be lifted into a canvas/Phaser `MatchView` (per the blueprint) without
-a rewrite. The tuning constants at the top of `game.js` are where the feel lives.
+a rewrite.
+
+## Feel calibration (CG-002)
+
+Every feel-critical constant lives in one authoritative `TUNING` object at the
+top of `game.js` (reachable at runtime as `window.CG.TUNING`). The slice ships
+with measuring instruments:
+
+- **Diagnostics overlay** — press `` ` `` (or `window.CG.setDiag(true)`) for live
+  fps, metrics, and the active constants.
+- **Metrics** — shots + shot velocity, passes, checks, fence impacts + angle,
+  possession changes, and goals. Read a snapshot with `window.CG.getMetrics()`.
+- **Deterministic scenarios** — `window.CG.runScenario('ai-faceoff-60s')` runs a
+  seeded, fixed-timestep match that produces identical metrics every time.
+
+Baseline evidence and the full report live in
+[`calibration/`](./calibration/CALIBRATION.md).

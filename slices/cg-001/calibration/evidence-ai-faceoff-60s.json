@@ -1,0 +1,61 @@
+{
+  "scenario": "ai-faceoff-60s",
+  "seed": 12648430,
+  "seconds": 60,
+  "tuning": {
+    "movement": {
+      "accel": 1150,
+      "maxSpeed": 250
+    },
+    "steering": {
+      "turnHandling": 9.5
+    },
+    "friction": {
+      "skater": 4.2
+    },
+    "oil": {
+      "accelMult": 0.34,
+      "frictionMult": 0.3
+    },
+    "pass": {
+      "speed": 400
+    },
+    "shot": {
+      "minSpeed": 380,
+      "maxSpeed": 560
+    },
+    "check": {
+      "impulse": 330,
+      "minSpeed": 120,
+      "radius": 29
+    },
+    "puck": {
+      "damping": 0.85
+    },
+    "fence": {
+      "restitution": 1
+    },
+    "pickup": {
+      "radius": 24
+    }
+  },
+  "metrics": {
+    "shots": 1,
+    "shotSpeed": {
+      "last": 560,
+      "min": 560,
+      "max": 560,
+      "avg": 560
+    },
+    "passes": 14,
+    "fenceImpacts": 15,
+    "lastFenceAngleDeg": 15,
+    "possessionChanges": 11,
+    "checks": 58,
+    "goals": {
+      "player": 4,
+      "opponent": 1
+    },
+    "elapsed": 60
+  }
+}

@@ -24,29 +24,33 @@
   var SKATER_R = 13;
   var PUCK_R = 6;
 
-  // Movement / feel. Tuned by hand for a snappy arcade slice.
-  var ACCEL = 1150;                   // px/s^2 toward steer target
-  var MAX_SPEED = 250;                // px/s
-  var SKATER_FRICTION = 4.2;          // per second (linear damping)
-  var PUCK_FRICTION = 0.85;           // concrete glide — pucks carry
-  var TURN_HANDLING = 9.5;            // how fast heading snaps to input
+  // ============================================================
+  // CG-002 — FEEL TUNING
+  // The single authoritative source for every gameplay-feel constant:
+  // everything the player touches each second is tuned from here (and
+  // reachable at runtime via window.CG.TUNING). Change a value here and
+  // the feel changes; nothing else in this file hard-codes these numbers.
+  // ============================================================
+  var TUNING = {
+    movement: { accel: 1150, maxSpeed: 250 },          // px/s^2 toward steer target; px/s cap
+    steering: { turnHandling: 9.5 },                   // how fast heading snaps to input
+    friction: { skater: 4.2 },                         // per-second linear damping on skaters
+    oil:      { accelMult: 0.34, frictionMult: 0.30 }, // grip retained on the slick (lower = slicker)
+    pass:     { speed: 400 },                          // px/s pass velocity
+    shot:     { minSpeed: 380, maxSpeed: 560 },        // flick power clamps here; keyboard shot = max
+    check:    { impulse: 330, minSpeed: 120, radius: SKATER_R * 2 + 3 }, // knock; min closing speed; reach
+    puck:     { damping: 0.85 },                       // per-second glide damping (concrete)
+    fence:    { restitution: 1.0 },                    // puck bounce energy off the boards (1 = elastic)
+    pickup:   { radius: SKATER_R + PUCK_R + 5 }         // loose-puck grab range
+  };
 
+  // Non-feel geometry / timing (fixed; deliberately outside the tuning surface).
   var CARRY_DIST = SKATER_R + PUCK_R + 2;
-  var PICKUP_R = SKATER_R + PUCK_R + 5;
-  var SHOOT_SPEED = 560;
-  var PASS_SPEED = 400;
-  var CHECK_R = SKATER_R * 2 + 3;
-  var CHECK_MIN_SPEED = 120;          // checker must be moving this fast
-  var CHECK_KNOCK = 330;
   var STAGGER_TIME = 0.45;            // seconds a checked carrier is stunned
   var PICKUP_LOCKOUT = 0.16;          // brief no-grab window after a release
 
-  // Readable concrete hazard: a fixed oil slick. On it, skaters lose grip —
-  // reduced control (accel) and reduced braking (friction) so momentum carries.
-  // Effect applies only while inside the slick; grip fully restores on exit.
+  // Readable concrete hazard: a fixed oil slick (geometry here; grip in TUNING.oil).
   var OIL = { x: W * 0.5, y: H * 0.68, rx: 48, ry: 30 };
-  var OIL_ACCEL_MULT = 0.34;          // how little steering authority you keep
-  var OIL_FRICTION_MULT = 0.30;       // how little you can brake/carve
 
   var PERIOD_SECONDS = 60;
 
@@ -72,6 +76,56 @@
   var pointer = { down: false, x: 0, y: 0, startX: 0, startY: 0, startT: 0,
                   lastX: 0, lastY: 0, lastT: 0, vx: 0, vy: 0 };
   var keys = {};
+
+  // ---- CG-002 instruments (metrics, determinism, diagnostics) --------
+  var metrics, lastPossessionTeam = -1;
+  var simAiOnly = false;   // deterministic scenarios drive every skater by AI
+  var diagOn = false;      // toggleable diagnostics overlay
+  var fps = 0;
+
+  // Seeded PRNG (mulberry32) so scenarios are reproducible. All gameplay
+  // randomness routes through rng(); live play seeds from the clock, scenarios
+  // seed from a fixed value.
+  var rngState = 1, currentSeed = 1;
+  function seedRng(seed) { currentSeed = seed >>> 0; rngState = currentSeed || 1; }
+  function rng() {
+    rngState = (rngState + 0x6D2B79F5) | 0;
+    var t = rngState;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  function resetMetrics() {
+    metrics = {
+      shots: 0,
+      shotSpeed: { last: 0, min: 0, max: 0, avg: 0, _sum: 0 },
+      passes: 0,
+      fenceImpacts: 0,
+      lastFenceAngleDeg: 0,
+      possessionChanges: 0,
+      checks: 0,
+      goals: { player: 0, opponent: 0 },
+      elapsed: 0
+    };
+    lastPossessionTeam = -1;
+  }
+  resetMetrics();
+
+  function recordShot(speed) {
+    metrics.shots++;
+    var ss = metrics.shotSpeed;
+    ss.last = speed;
+    ss.min = metrics.shots === 1 ? speed : Math.min(ss.min, speed);
+    ss.max = Math.max(ss.max, speed);
+    ss._sum += speed;
+    ss.avg = ss._sum / metrics.shots;
+  }
+  function recordFenceImpact() {
+    metrics.fenceImpacts++;
+    // Puck travel angle at the moment of impact (pre-reflection), in degrees.
+    metrics.lastFenceAngleDeg = Math.round(Math.atan2(puck.vy, puck.vx) * 180 / Math.PI);
+  }
 
   // ---- Helpers -------------------------------------------------------
   function len(x, y) { return Math.sqrt(x * x + y * y); }
@@ -131,6 +185,9 @@
   }
 
   function startGame() {
+    simAiOnly = false;
+    seedRng((Date.now() >>> 0) ^ 0x9e3779b9); // live play: varied each period
+    resetMetrics();
     score.player = 0; score.opponent = 0;
     timeRemaining = PERIOD_SECONDS;
     resetPositions(true);
@@ -155,15 +212,18 @@
 
   function shootTowardNet(id) {
     var s = skaters[id];
+    var speed = TUNING.shot.maxSpeed;
     var tx = oppNetX(s.team), ty = clamp(s.y, GOAL_TOP + 10, GOAL_BOTTOM - 10);
     var dx = tx - puck.x, dy = ty - puck.y, d = len(dx, dy) || 1;
-    releasePuck((dx / d) * SHOOT_SPEED, (dy / d) * SHOOT_SPEED, id);
+    releasePuck((dx / d) * speed, (dy / d) * speed, id);
+    recordShot(speed);
     if (s.team === TEAM_PLAYER) flash('SHOOT!', 0.4);
   }
 
   function shootDir(id, dx, dy, speed) {
     var d = len(dx, dy) || 1;
     releasePuck((dx / d) * speed, (dy / d) * speed, id);
+    recordShot(speed);
   }
 
   function passToTeammate(id) {
@@ -178,7 +238,8 @@
     // Lead the pass slightly toward where the mate is heading.
     var tx = best.x + best.vx * 0.22, ty = best.y + best.vy * 0.22;
     var dx = tx - puck.x, dy = ty - puck.y, d = len(dx, dy) || 1;
-    releasePuck((dx / d) * PASS_SPEED, (dy / d) * PASS_SPEED, id);
+    releasePuck((dx / d) * TUNING.pass.speed, (dy / d) * TUNING.pass.speed, id);
+    metrics.passes++;
     if (s.team === TEAM_PLAYER) flash('PASS', 0.35);
   }
 
@@ -226,7 +287,7 @@
 
     if (flick > 0.7) {
       // Flick to shoot — direction and power from the release.
-      shootDir(id, pointer.vx, pointer.vy, clamp(flick * 620, 380, SHOOT_SPEED));
+      shootDir(id, pointer.vx, pointer.vy, clamp(flick * 620, TUNING.shot.minSpeed, TUNING.shot.maxSpeed));
       flash('SHOOT!', 0.4);
     } else if (totalDt < 220 && moveDist < 16) {
       // Quick tap to pass.
@@ -247,6 +308,7 @@
         }
       }
       if (down && (k === 'r')) startGame();
+      if (down && (k === '`')) diagOn = !diagOn;   // toggle diagnostics overlay
       if (k === ' ') e.preventDefault();
     };
   }
@@ -275,8 +337,8 @@
       var onAttackSide = s.team === TEAM_PLAYER ? s.x > W * 0.55 : s.x < W * 0.45;
       var range = Math.abs(netX - s.x);
       if (onAttackSide && range < 250 && Math.abs(s.y - H / 2) < GOAL_HALF + 40) {
-        if (Math.random() < 0.05) shootTowardNet(s.id);
-      } else if (Math.random() < 0.012) {
+        if (rng() < 0.05) shootTowardNet(s.id);
+      } else if (rng() < 0.012) {
         // Occasionally move the puck to a teammate.
         passToTeammate(s.id);
       }
@@ -326,8 +388,8 @@
     // braking, so you keep sliding the way you were already going. Restores
     // fully the instant you leave (the flag is recomputed every step).
     s.onOil = onOil(s.x, s.y);
-    var accel = s.onOil ? ACCEL * OIL_ACCEL_MULT : ACCEL;
-    var friction = s.onOil ? SKATER_FRICTION * OIL_FRICTION_MULT : SKATER_FRICTION;
+    var accel = s.onOil ? TUNING.movement.accel * TUNING.oil.accelMult : TUNING.movement.accel;
+    var friction = s.onOil ? TUNING.friction.skater * TUNING.oil.frictionMult : TUNING.friction.skater;
 
     s.vx += a.x * accel * speedScale * dt;
     s.vy += a.y * accel * speedScale * dt;
@@ -337,7 +399,7 @@
     s.vx *= f; s.vy *= f;
 
     // Clamp speed
-    var sp = len(s.vx, s.vy), max = MAX_SPEED * speedScale;
+    var sp = len(s.vx, s.vy), max = TUNING.movement.maxSpeed * speedScale;
     if (sp > max) { s.vx = s.vx / sp * max; s.vy = s.vy / sp * max; }
 
     s.x += s.vx * dt; s.y += s.vy * dt;
@@ -348,7 +410,7 @@
 
     // Facing follows heading.
     if (sp > 8) {
-      var nx = s.vx / sp, ny = s.vy / sp, t = clamp(TURN_HANDLING * dt, 0, 1);
+      var nx = s.vx / sp, ny = s.vy / sp, t = clamp(TUNING.steering.turnHandling * dt, 0, 1);
       s.fx += (nx - s.fx) * t; s.fy += (ny - s.fy) * t;
       var fl = len(s.fx, s.fy) || 1; s.fx /= fl; s.fy /= fl;
     }
@@ -377,17 +439,18 @@
     for (var i = 0; i < skaters.length; i++) {
       var s = skaters[i];
       if (s.team === carrier.team) continue;
-      if (dist(s, carrier) > CHECK_R) continue;
+      if (dist(s, carrier) > TUNING.check.radius) continue;
       var sp = len(s.vx, s.vy);
-      if (sp < CHECK_MIN_SPEED) continue;
+      if (sp < TUNING.check.minSpeed) continue;
       // Must be moving toward the carrier.
       var tx = carrier.x - s.x, ty = carrier.y - s.y, td = len(tx, ty) || 1;
       if ((s.vx * tx + s.vy * ty) / (sp * td) < 0.3) continue;
       // Knock the puck loose along the carrier's momentum + push.
       var kx = tx / td, ky = ty / td;
-      releasePuck(kx * CHECK_KNOCK + carrier.vx * 0.5,
-                  ky * CHECK_KNOCK + carrier.vy * 0.5, s.id);
+      releasePuck(kx * TUNING.check.impulse + carrier.vx * 0.5,
+                  ky * TUNING.check.impulse + carrier.vy * 0.5, s.id);
       carrier.stagger = STAGGER_TIME;
+      metrics.checks++;
       if (carrier.team === TEAM_PLAYER) flash('CHECKED!', 0.5);
       else flash('BIG HIT', 0.5);
       return;
@@ -407,39 +470,50 @@
     }
 
     // Free puck glides and banks off the fence.
-    var f = Math.max(0, 1 - PUCK_FRICTION * dt);
+    var f = Math.max(0, 1 - TUNING.puck.damping * dt);
     puck.vx *= f; puck.vy *= f;
     puck.x += puck.vx * dt; puck.y += puck.vy * dt;
 
+    var rest = TUNING.fence.restitution;
+
     // Top / bottom fence — always bank.
-    if (puck.y - PUCK_R < RINK.top) { puck.y = RINK.top + PUCK_R; puck.vy = Math.abs(puck.vy); }
-    if (puck.y + PUCK_R > RINK.bottom) { puck.y = RINK.bottom - PUCK_R; puck.vy = -Math.abs(puck.vy); }
+    if (puck.y - PUCK_R < RINK.top) { recordFenceImpact(); puck.y = RINK.top + PUCK_R; puck.vy = Math.abs(puck.vy) * rest; }
+    if (puck.y + PUCK_R > RINK.bottom) { recordFenceImpact(); puck.y = RINK.bottom - PUCK_R; puck.vy = -Math.abs(puck.vy) * rest; }
 
     // End walls — goal mouth scores, everything else banks.
     var inMouth = puck.y > GOAL_TOP && puck.y < GOAL_BOTTOM;
     if (puck.x - PUCK_R < RINK.left) {
       if (inMouth) { goal(TEAM_OPP); return; }
-      puck.x = RINK.left + PUCK_R; puck.vx = Math.abs(puck.vx);
+      recordFenceImpact(); puck.x = RINK.left + PUCK_R; puck.vx = Math.abs(puck.vx) * rest;
     }
     if (puck.x + PUCK_R > RINK.right) {
       if (inMouth) { goal(TEAM_PLAYER); return; }
-      puck.x = RINK.right - PUCK_R; puck.vx = -Math.abs(puck.vx);
+      recordFenceImpact(); puck.x = RINK.right - PUCK_R; puck.vx = -Math.abs(puck.vx) * rest;
     }
 
     // Pickup / rebound — nearest skater in range grabs it.
     if (puck.lockout <= 0) {
-      var best = -1, bd = PICKUP_R;
+      var best = -1, bd = TUNING.pickup.radius;
       for (var i = 0; i < skaters.length; i++) {
         var d = dist(skaters[i], puck);
         if (d < bd) { bd = d; best = i; }
       }
-      if (best >= 0) { puck.owner = best; puck.vx = 0; puck.vy = 0; }
+      if (best >= 0) grantPuck(best);
     }
   }
 
+  // Assign the puck to a skater and count a possession change when the
+  // controlling team flips (steals, intercepted passes, rebounds to rivals).
+  function grantPuck(id) {
+    puck.owner = id; puck.vx = 0; puck.vy = 0;
+    var t = skaters[id].team;
+    if (lastPossessionTeam !== -1 && t !== lastPossessionTeam) metrics.possessionChanges++;
+    lastPossessionTeam = t;
+  }
+
   function goal(team) {
-    if (team === TEAM_PLAYER) { score.player++; flash('GOAL!', 1.2); }
-    else { score.opponent++; flash('THEY SCORE', 1.2); }
+    if (team === TEAM_PLAYER) { score.player++; metrics.goals.player++; flash('GOAL!', 1.2); }
+    else { score.opponent++; metrics.goals.opponent++; flash('THEY SCORE', 1.2); }
     resetPositions(true);
   }
 
@@ -452,10 +526,11 @@
     if (!last) last = now;
     var dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    if (dt > 0) fps += (1 / dt - fps) * 0.1;
 
     if (running) {
       acc += dt;
-      while (acc >= STEP) { step(STEP); acc -= STEP; }
+      while (acc >= STEP) { step(STEP); metrics.elapsed += STEP; acc -= STEP; }
       timeRemaining -= dt;
       if (timeRemaining <= 0) { timeRemaining = 0; endGame(); }
     }
@@ -466,7 +541,7 @@
   }
 
   function step(dt) {
-    var humanId = activeHumanId();
+    var humanId = simAiOnly ? -1 : activeHumanId();
     var humanWasOnOil = humanId >= 0 && skaters[humanId].onOil;
     for (var i = 0; i < skaters.length; i++) {
       var s = skaters[i];
@@ -526,6 +601,48 @@
 
     drawHud();
     if (flashTimer > 0 && flashText) drawFlash();
+    if (diagOn) drawDiag();
+  }
+
+  // Toggleable diagnostics overlay (` key, or window.CG.toggleDiag()).
+  // Shows the live metrics and a few key constants so tuning is legible.
+  function drawDiag() {
+    var puckSp = puck.owner >= 0 ? 0 : len(puck.vx, puck.vy);
+    var ss = metrics.shotSpeed;
+    var lines = [
+      'DIAGNOSTICS  (` to toggle)' + (simAiOnly ? '  [AI-ONLY]' : ''),
+      'fps ' + fps.toFixed(0) + '   t ' + metrics.elapsed.toFixed(1) + 's',
+      '',
+      'shots ' + metrics.shots + '  v(last/min/max/avg) ' +
+        ss.last.toFixed(0) + '/' + ss.min.toFixed(0) + '/' + ss.max.toFixed(0) + '/' + ss.avg.toFixed(0),
+      'passes ' + metrics.passes + '   checks ' + metrics.checks,
+      'fence hits ' + metrics.fenceImpacts + '  last angle ' + metrics.lastFenceAngleDeg + '°',
+      'possession changes ' + metrics.possessionChanges,
+      'goals  you ' + metrics.goals.player + '  rivals ' + metrics.goals.opponent,
+      'puck speed ' + puckSp.toFixed(0) + ' px/s',
+      '',
+      'accel ' + TUNING.movement.accel + '  vmax ' + TUNING.movement.maxSpeed,
+      'fric ' + TUNING.friction.skater + '  turn ' + TUNING.steering.turnHandling,
+      'oil x' + TUNING.oil.accelMult + '/' + TUNING.oil.frictionMult +
+        '  puckDamp ' + TUNING.puck.damping,
+      'pass ' + TUNING.pass.speed + '  shot ' + TUNING.shot.minSpeed + '-' + TUNING.shot.maxSpeed,
+      'check ' + TUNING.check.impulse + '@' + TUNING.check.minSpeed +
+        '  fenceRest ' + TUNING.fence.restitution,
+      'pickup r ' + TUNING.pickup.radius + '  seed ' + currentSeed
+    ];
+    var pad = 8, lh = 15, w = 268, h = pad * 2 + lines.length * lh;
+    var x = RINK.left + 6, y = RINK.top + 40;
+    ctx.fillStyle = 'rgba(6,8,12,0.82)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(57,255,20,0.5)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = '600 11px "Courier New", monospace';
+    var firstConstLine = 10; // metrics above, TUNING constants below
+    for (var i = 0; i < lines.length; i++) {
+      ctx.fillStyle = i === 0 ? '#39ff14' : (i >= firstConstLine ? '#9ca3af' : '#cbd5e1');
+      ctx.fillText(lines[i], x + pad, y + pad + i * lh);
+    }
   }
 
   function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
@@ -625,6 +742,72 @@
   }
   function hideOverlay() { overlay.style.display = 'none'; }
 
+  // ---- CG-002 deterministic scenarios --------------------------------
+  // Same seed + fixed timestep + scripted setup => identical metrics every
+  // run. These are the measuring instruments: repeatable, explainable results.
+  var SCENARIOS = {
+    'ai-faceoff-60s': { seed: 0x00C0FFEE, seconds: 60, aiOnly: true,
+                        note: 'canonical 60-second evidence run, full AI vs AI' },
+    'ai-faceoff-10s': { seed: 0x0000B00B, seconds: 10, aiOnly: true,
+                        note: 'short repeatability check' },
+    'ai-faceoff-30s-altseed': { seed: 0xBADA55, seconds: 30, aiOnly: true,
+                        note: 'different seed, confirms seed sensitivity' }
+  };
+
+  function snapshotMetrics(name, sc) {
+    var ss = metrics.shotSpeed;
+    return {
+      scenario: name,
+      seed: sc ? sc.seed : currentSeed,
+      seconds: sc ? sc.seconds : metrics.elapsed,
+      tuning: JSON.parse(JSON.stringify(TUNING)),
+      metrics: {
+        shots: metrics.shots,
+        shotSpeed: { last: ss.last, min: ss.min, max: ss.max, avg: Math.round(ss.avg * 100) / 100 },
+        passes: metrics.passes,
+        fenceImpacts: metrics.fenceImpacts,
+        lastFenceAngleDeg: metrics.lastFenceAngleDeg,
+        possessionChanges: metrics.possessionChanges,
+        checks: metrics.checks,
+        goals: { player: metrics.goals.player, opponent: metrics.goals.opponent },
+        elapsed: Math.round(metrics.elapsed * 1000) / 1000
+      }
+    };
+  }
+
+  // Run a scenario synchronously and deterministically (no requestAnimationFrame,
+  // no wall clock). Pauses live play, leaves the world at the scenario's end
+  // state, and returns a metrics snapshot.
+  function runScenario(name) {
+    var sc = SCENARIOS[name];
+    if (!sc) throw new Error('unknown scenario: ' + name);
+    running = false;
+    simAiOnly = !!sc.aiOnly;
+    seedRng(sc.seed);
+    resetMetrics();
+    score.player = 0; score.opponent = 0;   // keep the visible HUD in sync with this run
+    timeRemaining = 0;                       // a completed scenario reads 0:00
+    resetPositions(true);
+    flashText = null; flashTimer = 0;
+    var dt = STEP, frames = Math.round(sc.seconds / dt);
+    for (var i = 0; i < frames; i++) { step(dt); metrics.elapsed += dt; }
+    return snapshotMetrics(name, sc);
+  }
+
+  // Headless / console API for measurement and tuning.
+  function exposeApi() {
+    if (typeof window === 'undefined') return;
+    window.CG = {
+      version: 'cg-002',
+      TUNING: TUNING,                                   // live, tunable
+      scenarios: Object.keys(SCENARIOS),
+      runScenario: runScenario,
+      getMetrics: function () { if (!metrics) resetMetrics(); return snapshotMetrics('live', null); },
+      toggleDiag: function () { diagOn = !diagOn; return diagOn; },
+      setDiag: function (v) { diagOn = !!v; return diagOn; }
+    };
+  }
+
   // ---- Boot ----------------------------------------------------------
   function fitCanvas() {
     dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -648,6 +831,7 @@
     window.addEventListener('keyup', onKey(false));
     document.getElementById('again').addEventListener('click', startGame);
 
+    exposeApi();
     resetPositions(true);
     startGame();
     requestAnimationFrame(frame);
