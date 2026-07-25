@@ -1,0 +1,373 @@
+{
+  "scenario": "brawl-canonical-60s",
+  "seed": 10852887,
+  "seconds": 60,
+  "brawlEnabled": true,
+  "brawlInput": "perfect",
+  "tuning": {
+    "movement": {
+      "accel": 1150,
+      "maxSpeed": 250
+    },
+    "steering": {
+      "turnHandling": 9.5
+    },
+    "friction": {
+      "skater": 4.2
+    },
+    "oil": {
+      "accelMult": 0.34,
+      "frictionMult": 0.3
+    },
+    "pass": {
+      "speed": 400
+    },
+    "shot": {
+      "minSpeed": 380,
+      "maxSpeed": 560
+    },
+    "check": {
+      "impulse": 330,
+      "minSpeed": 120,
+      "radius": 29
+    },
+    "puck": {
+      "damping": 0.85
+    },
+    "fence": {
+      "restitution": 1
+    },
+    "pickup": {
+      "radius": 24
+    },
+    "brawl": {
+      "tensionPerCheck": 25,
+      "tensionMax": 100,
+      "warnAt": 0.7,
+      "freezeTime": 0.5,
+      "beats": 4,
+      "beatPeriod": 1,
+      "windowOpen": 0.35,
+      "windowLen": 0.35,
+      "winHits": 3,
+      "winnerBoostTime": 2,
+      "winnerBoostMult": 1.35,
+      "loserPenaltyTime": 2
+    }
+  },
+  "metrics": {
+    "shots": 1,
+    "shotSpeed": {
+      "last": 560,
+      "min": 560,
+      "max": 560,
+      "avg": 560
+    },
+    "passes": 5,
+    "fenceImpacts": 9,
+    "lastFenceAngleDeg": -78,
+    "possessionChanges": 9,
+    "checks": 28,
+    "goals": {
+      "player": 1,
+      "opponent": 0
+    },
+    "tension_gained": 700,
+    "brawl_triggered": 7,
+    "brawl_input": 24,
+    "brawl_hit": 24,
+    "brawl_miss": 0,
+    "brawl_resolved": 6,
+    "play_resumed": 6,
+    "elapsed": 32.067
+  },
+  "brawlEvents": [
+    {
+      "type": "trigger",
+      "aggressor": 0,
+      "defender": 3,
+      "playerId": 0,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 4,
+      "timeRemaining": 87.7,
+      "tick": 139
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 202
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 262
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 322
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 382
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 411
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 87.7,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 411
+    },
+    {
+      "type": "trigger",
+      "aggressor": 2,
+      "defender": 3,
+      "playerId": 2,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 8,
+      "timeRemaining": 79.617,
+      "tick": 897
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 960
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 1020
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 1080
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 1140
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 1169
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 79.617,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 1169
+    },
+    {
+      "type": "trigger",
+      "aggressor": 3,
+      "defender": 0,
+      "playerId": 0,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 12,
+      "timeRemaining": 76.167,
+      "tick": 1377
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 1440
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 1500
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 1560
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 1620
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 1649
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 76.167,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 1649
+    },
+    {
+      "type": "trigger",
+      "aggressor": 0,
+      "defender": 3,
+      "playerId": 0,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 16,
+      "timeRemaining": 71.517,
+      "tick": 1929
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 1992
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 2052
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 2112
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 2172
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 2201
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 71.517,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 2201
+    },
+    {
+      "type": "trigger",
+      "aggressor": 3,
+      "defender": 0,
+      "playerId": 0,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 20,
+      "timeRemaining": 68.067,
+      "tick": 2409
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 2472
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 2532
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 2592
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 2652
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 2681
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 68.067,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 2681
+    },
+    {
+      "type": "trigger",
+      "aggressor": 0,
+      "defender": 4,
+      "playerId": 0,
+      "oppId": 4,
+      "tension": 100,
+      "checks": 24,
+      "timeRemaining": 61.033,
+      "tick": 3104
+    },
+    {
+      "type": "hit",
+      "beat": 0,
+      "tick": 3167
+    },
+    {
+      "type": "hit",
+      "beat": 1,
+      "tick": 3227
+    },
+    {
+      "type": "hit",
+      "beat": 2,
+      "tick": 3287
+    },
+    {
+      "type": "hit",
+      "beat": 3,
+      "tick": 3347
+    },
+    {
+      "type": "resolve",
+      "winner": "PLAYER",
+      "hits": 4,
+      "misses": 0,
+      "tick": 3376
+    },
+    {
+      "type": "resume",
+      "winner": "PLAYER",
+      "timeRemaining": 61.033,
+      "puckOwner": -1,
+      "faceoff": true,
+      "tick": 3376
+    },
+    {
+      "type": "trigger",
+      "aggressor": 3,
+      "defender": 1,
+      "playerId": 1,
+      "oppId": 3,
+      "tension": 100,
+      "checks": 28,
+      "timeRemaining": 57.933,
+      "tick": 3563
+    }
+  ]
+}

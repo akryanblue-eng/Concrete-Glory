@@ -31,6 +31,11 @@ Double-click it, or drag it into any modern browser. It starts immediately.
   warning ring. Skate onto it and you lose grip: less steering authority and less
   braking, so momentum carries you. Grip restores fully the instant you leave.
   It's the same for every skater, never moves, and carries no hidden penalty.
+- **Asphalt Brawl** — checks build a Tension meter; at full, the court goes silent
+  for a beat and the two skaters involved settle it in a ~5-second rhythm scrap
+  (tap/space in the gold windows). Winner gets a brief speed boost, loser a short
+  stagger, then it's back to hockey from a clean face-off. Details + evidence in
+  [`calibration/BRAWL.md`](./calibration/BRAWL.md).
 - **Basic opponent** — the rival crew chases, carries, passes, and shoots.
 
 You always control whichever of your skaters has the puck; when you don't have
@@ -49,10 +54,10 @@ it, you control your crew member closest to the puck.
 ## Explicitly NOT in this slice
 
 Per the milestone boundary: no main menu, no cosmetics or gear, no career/meta
-progression, no Heat/rivalry system, no asphalt brawl, no multiple arenas, no
-full three-period match, and no online play. Those layer on top once the loop
-feels right. (One readable hazard — the oil slick — is in scope; a wider hazard
-set is not.)
+progression, no Heat/rivalry persistence, no multiple arenas, no full
+three-period match, and no online play. Those layer on top once the loop feels
+right. (One readable hazard — the oil slick — and the Asphalt Brawl are in
+scope; a wider hazard set, health bars, and a full fighting engine are not.)
 
 ## Notes for the next step
 
