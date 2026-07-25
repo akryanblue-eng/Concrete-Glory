@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Concrete Glory — CG-001</title>
+  <style>
+    :root { --cyan: #06b6d4; --pink: #f43f5e; --yellow: #eab308; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%; background: #09090b; color: #e5e7eb;
+      font-family: "Courier New", monospace; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    #stage {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px; padding: 12px;
+    }
+    #frame {
+      position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9;
+      border: 1px solid #27272a; box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    }
+    #rink {
+      width: 100%; height: 100%; display: block; touch-action: none;
+      background: #17171c;
+    }
+    #hint {
+      font-size: 12px; letter-spacing: 1px; color: #71717a; text-align: center;
+      max-width: 960px; line-height: 1.7;
+    }
+    #hint b { color: var(--cyan); }
+    #overlay {
+      position: absolute; inset: 0; display: none; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px;
+      background: rgba(9,9,11,0.92); z-index: 5;
+    }
+    #overlay-title {
+      margin: 0; font-size: clamp(28px, 6vw, 48px); font-weight: 900;
+      letter-spacing: 2px; color: var(--pink); text-shadow: 0 0 18px rgba(244,63,94,0.5);
+    }
+    #overlay-sub { margin: 0; font-size: clamp(14px, 3vw, 20px); color: #d4d4d8; }
+    #again {
+      margin-top: 6px; padding: 12px 26px; background: transparent;
+      border: 2px solid var(--cyan); color: var(--cyan); font-family: inherit;
+      font-size: 16px; font-weight: 700; letter-spacing: 2px; border-radius: 6px;
+      cursor: pointer; transition: all .12s ease;
+    }
+    #again:hover { background: var(--cyan); color: #000; }
+    #again:active { transform: scale(0.96); }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="frame">
+      <canvas id="rink" width="960" height="540"></canvas>
+      <div id="overlay">
+        <h2 id="overlay-title">FINAL WHISTLE</h2>
+        <p id="overlay-sub"></p>
+        <button id="again">RUN IT BACK</button>
+      </div>
+    </div>
+    <div id="hint">
+      <b>Drag</b> to skate &nbsp;·&nbsp; <b>Tap</b> a direction to pass &nbsp;·&nbsp;
+      <b>Flick</b> to shoot &nbsp;·&nbsp; skate hard into a carrier to <b>check</b> &nbsp;·&nbsp;
+      chase the loose puck for the <b>rebound</b>
+      <br />Keyboard: <b>WASD / arrows</b> skate &nbsp;·&nbsp; <b>J</b> pass &nbsp;·&nbsp;
+      <b>K / Space</b> shoot &nbsp;·&nbsp; <b>R</b> restart
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
