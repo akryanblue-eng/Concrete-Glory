@@ -41,6 +41,13 @@
   var STAGGER_TIME = 0.45;            // seconds a checked carrier is stunned
   var PICKUP_LOCKOUT = 0.16;          // brief no-grab window after a release
 
+  // Readable concrete hazard: a fixed oil slick. On it, skaters lose grip —
+  // reduced control (accel) and reduced braking (friction) so momentum carries.
+  // Effect applies only while inside the slick; grip fully restores on exit.
+  var OIL = { x: W * 0.5, y: H * 0.68, rx: 48, ry: 30 };
+  var OIL_ACCEL_MULT = 0.34;          // how little steering authority you keep
+  var OIL_FRICTION_MULT = 0.30;       // how little you can brake/carve
+
   var PERIOD_SECONDS = 60;
 
   var TEAM_PLAYER = 0, TEAM_OPP = 1;
@@ -71,10 +78,16 @@
   function dist(a, b) { return len(a.x - b.x, a.y - b.y); }
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+  // Point-in-ellipse test for the oil slick.
+  function onOil(x, y) {
+    var dx = (x - OIL.x) / OIL.rx, dy = (y - OIL.y) / OIL.ry;
+    return dx * dx + dy * dy < 1;
+  }
+
   function makeSkater(team, x, y, role) {
     return { id: 0, team: team, x: x, y: y, vx: 0, vy: 0,
              fx: team === TEAM_PLAYER ? 1 : -1, fy: 0, // facing
-             role: role, stagger: 0 };
+             role: role, stagger: 0, onOil: false };
   }
 
   function ownerTeam() { return puck.owner >= 0 ? skaters[puck.owner].team : -1; }
@@ -308,11 +321,19 @@
   // ---- Physics / simulation -----------------------------------------
   function integrateSkater(s, a, dt) {
     var speedScale = s.stagger > 0 ? 0.35 : 1;
-    s.vx += a.x * ACCEL * speedScale * dt;
-    s.vy += a.y * ACCEL * speedScale * dt;
+
+    // Oil slick: lose grip while inside it. Less steering authority and less
+    // braking, so you keep sliding the way you were already going. Restores
+    // fully the instant you leave (the flag is recomputed every step).
+    s.onOil = onOil(s.x, s.y);
+    var accel = s.onOil ? ACCEL * OIL_ACCEL_MULT : ACCEL;
+    var friction = s.onOil ? SKATER_FRICTION * OIL_FRICTION_MULT : SKATER_FRICTION;
+
+    s.vx += a.x * accel * speedScale * dt;
+    s.vy += a.y * accel * speedScale * dt;
 
     // Friction
-    var f = Math.max(0, 1 - SKATER_FRICTION * dt);
+    var f = Math.max(0, 1 - friction * dt);
     s.vx *= f; s.vy *= f;
 
     // Clamp speed
@@ -446,11 +467,14 @@
 
   function step(dt) {
     var humanId = activeHumanId();
+    var humanWasOnOil = humanId >= 0 && skaters[humanId].onOil;
     for (var i = 0; i < skaters.length; i++) {
       var s = skaters[i];
       var a = (i === humanId) ? humanAccel(s) : aiAccel(s);
       integrateSkater(s, a, dt);
     }
+    // Immediate feedback the moment your skater hits the slick.
+    if (humanId >= 0 && skaters[humanId].onOil && !humanWasOnOil) flash('SLICK!', 0.5);
     separateSkaters();
     resolveChecks();
     integratePuck(dt);
@@ -473,6 +497,10 @@
     ctx.lineWidth = 2;
     line(W / 2, RINK.top, W / 2, RINK.bottom);
     ctx.beginPath(); ctx.arc(W / 2, H / 2, 62, 0, Math.PI * 2); ctx.stroke();
+
+    // Oil slick — drawn on the surface, under the skaters, so it reads clearly
+    // before anyone touches it.
+    drawSlick();
 
     // Goals.
     drawGoal(RINK.left, COLOR.player);
@@ -512,8 +540,35 @@
     ctx.shadowBlur = 0;
   }
 
+  function drawSlick() {
+    ctx.save();
+    ctx.translate(OIL.x, OIL.y);
+    var g = ctx.createRadialGradient(-8, -8, 4, 0, 0, OIL.rx);
+    g.addColorStop(0, 'rgba(42,44,52,0.95)');
+    g.addColorStop(0.7, 'rgba(8,10,14,0.82)');
+    g.addColorStop(1, 'rgba(8,10,14,0.15)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, OIL.rx, OIL.ry, -0.2, 0, Math.PI * 2); ctx.fill();
+    // Dashed yellow warning ring so it reads before contact.
+    ctx.strokeStyle = 'rgba(234,179,8,0.85)'; ctx.lineWidth = 2;
+    ctx.setLineDash([5, 6]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = '700 11px "Courier New", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('OIL', 0, 0);
+    ctx.restore();
+  }
+
   function drawSkater(s, isHuman) {
     var color = s.team === TEAM_PLAYER ? COLOR.player : COLOR.opp;
+    // On the slick: dashed yellow ring, so the loss of grip is legible.
+    if (s.onOil) {
+      ctx.beginPath(); ctx.strokeStyle = COLOR.puck; ctx.lineWidth = 2;
+      ctx.setLineDash([3, 4]);
+      ctx.arc(s.x, s.y, SKATER_R + 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (isHuman) {
       ctx.beginPath(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
       ctx.arc(s.x, s.y, SKATER_R + 4, 0, Math.PI * 2); ctx.stroke();
