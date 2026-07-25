@@ -1,0 +1,81 @@
+{
+  "generatedBy": "cg-002 headless evidence harness (Chromium, file://)",
+  "note": "Same seed + fixed 1/60 timestep => identical metrics. Values below are reproducible.",
+  "scenarios": {
+    "ai-faceoff-60s": {
+      "seed": 12648430,
+      "seconds": 60,
+      "samePageRepeatable": true,
+      "crossLoadRepeatable": true,
+      "metrics": {
+        "shots": 1,
+        "shotSpeed": {
+          "last": 560,
+          "min": 560,
+          "max": 560,
+          "avg": 560
+        },
+        "passes": 14,
+        "fenceImpacts": 15,
+        "lastFenceAngleDeg": 15,
+        "possessionChanges": 11,
+        "checks": 58,
+        "goals": {
+          "player": 4,
+          "opponent": 1
+        },
+        "elapsed": 60
+      }
+    },
+    "ai-faceoff-10s": {
+      "seed": 45067,
+      "seconds": 10,
+      "samePageRepeatable": true,
+      "crossLoadRepeatable": true,
+      "metrics": {
+        "shots": 0,
+        "shotSpeed": {
+          "last": 0,
+          "min": 0,
+          "max": 0,
+          "avg": 0
+        },
+        "passes": 1,
+        "fenceImpacts": 0,
+        "lastFenceAngleDeg": 0,
+        "possessionChanges": 2,
+        "checks": 13,
+        "goals": {
+          "player": 0,
+          "opponent": 1
+        },
+        "elapsed": 10
+      }
+    },
+    "ai-faceoff-30s-altseed": {
+      "seed": 12245589,
+      "seconds": 30,
+      "samePageRepeatable": true,
+      "crossLoadRepeatable": true,
+      "metrics": {
+        "shots": 2,
+        "shotSpeed": {
+          "last": 560,
+          "min": 560,
+          "max": 560,
+          "avg": 560
+        },
+        "passes": 8,
+        "fenceImpacts": 11,
+        "lastFenceAngleDeg": -99,
+        "possessionChanges": 14,
+        "checks": 22,
+        "goals": {
+          "player": 1,
+          "opponent": 0
+        },
+        "elapsed": 30
+      }
+    }
+  }
+}
